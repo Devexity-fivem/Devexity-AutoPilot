@@ -15,6 +15,9 @@ local function setMinimapFeedback(message)
     end
 end
 
+--uncommet if using standalone and commit the function above^^^^
+--local function setMinimapFeedback(message) SetNotificationTextEntry("STRING") AddTextComponentString(message) DrawNotification(0, 1) end
+
 local function checkForObstacles()
     local vehicle = GetVehiclePedIsIn(GetPlayerPed(-1), false)
     local speed = GetEntitySpeed(vehicle)
