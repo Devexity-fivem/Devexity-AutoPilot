@@ -75,15 +75,6 @@ local function handleAutopilot()
                 while autopilotenabled do
                     Wait(500)
 
-                    -- Check if the player is still in the driver's seat
-                    if vehicle == 0 or GetPedInVehicleSeat(vehicle, -1) ~= playerPed then
-                        setMinimapFeedback("Auto-Pilot stopped: Driver left the seat.")
-                        autopilotenabled = false
-                        TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
-                        break
-                    end
-
-                    -- Check if waypoint is still active
                     if not IsWaypointActive() then
                         setMinimapFeedback("Auto-Pilot deactivated.")
                         autopilotenabled = false
@@ -91,7 +82,6 @@ local function handleAutopilot()
                         break
                     end
 
-                    -- Check distance to waypoint
                     local currentPos = GetEntityCoords(vehicle)
                     local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypoint.x, waypoint.y, waypoint.z)
 
