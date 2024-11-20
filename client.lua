@@ -7,7 +7,7 @@ local crash = true
 local function setMinimapFeedback(message)
     local QBCore = exports['qb-core']:GetCoreObject()
     if QBCore and QBCore.Functions and QBCore.Functions.Notify then
-        QBCore.Functions.Notify(message, 'success')  -- 'success' can be 'error', 'inform', etc.
+        QBCore.Functions.Notify(message, 'success') -- 'success' can be 'error', 'inform', etc.
     else
         SetNotificationTextEntry("STRING")
         AddTextComponentString(message)
@@ -19,28 +19,53 @@ end
 local function checkForObstacles()
     local playerPed = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(playerPed, false)
-    local speed = GetEntitySpeed(vehicle)
-    local radius = math.max(5.0, speed / 2)
 
-    local forwardVector = GetEntityForwardVector(vehicle)
+    if not DoesEntityExist(vehicle) then
+        setMinimapFeedback("No vehicle detected.")
+        return
+    end
+
+    local speed = GetEntitySpeed(vehicle)
+    local radius = math.max(5.0, (speed or 0) / 2)
+
+    -- Get the vehicle's current position
     local startPos = GetEntityCoords(vehicle)
+    if not startPos or not startPos.x or not startPos.y or not startPos.z then
+        print("Error: Invalid startPos values:", startPos) -- Debugging output
+        return
+    end
+
+    -- Get the vehicle's forward direction
+    local forwardVector = GetEntityForwardVector(vehicle)
+    if not forwardVector or not forwardVector.x or not forwardVector.y or not forwardVector.z then
+        print("Error: Invalid forwardVector values:", forwardVector) -- Debugging output
+        return
+    end
+
+    -- Calculate the end position
     local endPos = vector3(
         startPos.x + forwardVector.x * radius,
         startPos.y + forwardVector.y * radius,
-        startPos.z
+        startPos.z + forwardVector.z * radius
     )
 
-    local rayHandle = StartShapeTestRay(startPos.x, startPos.y, startPos.z, endPos.x, endPos.y, endPos.z, 10, vehicle, 0)
+    -- Perform raycasting to detect obstacles
+    local rayHandle = StartShapeTestRay(
+        startPos.x, startPos.y, startPos.z,
+        endPos.x, endPos.y, endPos.z,
+        10, vehicle, 0
+    )
     local _, hit, _, _, entity = GetShapeTestResult(rayHandle)
 
     if hit then
         local entityType = GetEntityType(entity)
-        if entityType == 2 or entityType == 3 then  -- vehicle or object
+        if entityType == 2 or entityType == 3 then -- vehicle or object
             TaskVehicleTempAction(playerPed, vehicle, 23, 1000) -- Emergency braking
             setMinimapFeedback("Obstacle detected! Braking.")
         end
     end
 end
+
 
 -- Obstacle detection thread
 Citizen.CreateThread(function()
@@ -63,13 +88,11 @@ local function handleAutopilot()
         waypoint = Citizen.InvokeNative(0xFA7C7F0AADF25D09, GetFirstBlipInfoId(8), Citizen.ResultAsVector())
     end
 
-    -- Validate waypoint and return if invalid
     if not IsWaypointActive() or not waypoint then
         setMinimapFeedback("Please set a valid waypoint.")
         return
     end
 
-    -- If waypoint exists, either activate or cancel autopilot
     if autopilotenabled then
         autopilotenabled = false
         setMinimapFeedback("Auto-Pilot canceled.")
