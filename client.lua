@@ -1,25 +1,24 @@
 local veh, tesla_blip = nil, nil
 local autopilotenabled, pilot = false, false
-local speed = 23.0
+local speed = 45.0
 local crash = true
 
--- Helper function for notifications using qb-core's notify system
+-- Helper function for notifications
 local function setMinimapFeedback(message)
     local QBCore = exports['qb-core']:GetCoreObject()
-
-    -- Use QB-Core Notify to display the notification
     if QBCore and QBCore.Functions and QBCore.Functions.Notify then
-        QBCore.Functions.Notify(message, 'success')  -- 'success' can be changed to 'error', 'inform', etc.
+        QBCore.Functions.Notify(message, 'success')  -- 'success' can be 'error', 'inform', etc.
     else
-        print("Notification system unavailable. Message: " .. message)
+        SetNotificationTextEntry("STRING")
+        AddTextComponentString(message)
+        DrawNotification(0, 1)
     end
 end
 
---uncommet if using standalone and commit the function above^^^^
---local function setMinimapFeedback(message) SetNotificationTextEntry("STRING") AddTextComponentString(message) DrawNotification(0, 1) end
-
+-- Function to check for obstacles in front of the vehicle
 local function checkForObstacles()
-    local vehicle = GetVehiclePedIsIn(GetPlayerPed(-1), false)
+    local playerPed = GetPlayerPed(-1)
+    local vehicle = GetVehiclePedIsIn(playerPed, false)
     local speed = GetEntitySpeed(vehicle)
     local radius = math.max(5.0, speed / 2)
 
@@ -37,12 +36,13 @@ local function checkForObstacles()
     if hit then
         local entityType = GetEntityType(entity)
         if entityType == 2 or entityType == 3 then  -- vehicle or object
-            TaskVehicleTempAction(GetPlayerPed(-1), vehicle, 23, 1000) -- Emergency braking
+            TaskVehicleTempAction(playerPed, vehicle, 23, 1000) -- Emergency braking
             setMinimapFeedback("Obstacle detected! Braking.")
         end
     end
 end
 
+-- Obstacle detection thread
 Citizen.CreateThread(function()
     while crash do
         if autopilotenabled then
@@ -52,15 +52,18 @@ Citizen.CreateThread(function()
     end
 end)
 
+-- Function to handle autopilot logic
 local function handleAutopilot()
     local playerPed = GetPlayerPed(-1)
     local vehicle = GetVehiclePedIsIn(playerPed, false)
     local waypoint = nil
 
+    -- Check if a waypoint is set
     if IsWaypointActive() then
         waypoint = Citizen.InvokeNative(0xFA7C7F0AADF25D09, GetFirstBlipInfoId(8), Citizen.ResultAsVector())
     end
 
+    -- If waypoint exists, either activate or cancel autopilot
     if waypoint then
         if autopilotenabled then
             autopilotenabled = false
@@ -71,24 +74,29 @@ local function handleAutopilot()
             setMinimapFeedback("Auto-Pilot activated.")
             TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, speed, 2883621, 1.0)
 
+            -- Thread to handle distance and stopping logic
             Citizen.CreateThread(function()
                 while autopilotenabled do
                     Wait(500)
 
+                    -- If the waypoint is no longer active, cancel autopilot
                     if not IsWaypointActive() then
-                        setMinimapFeedback("Auto-Pilot deactivated.")
+                        setMinimapFeedback("Auto-Pilot deactivated: No active waypoint.")
                         autopilotenabled = false
                         TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
                         break
                     end
 
+                    -- Check the current distance from the waypoint
                     local currentPos = GetEntityCoords(vehicle)
                     local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypoint.x, waypoint.y, waypoint.z)
 
+                    -- Gradually slow down if close to the waypoint
                     if distance < 10.0 and GetEntitySpeed(vehicle) > 0 then
                         SetVehicleForwardSpeed(vehicle, math.max(GetEntitySpeed(vehicle) - 1.0, 0.0))
                     end
 
+                    -- Stop the vehicle once we reach the destination
                     if distance < 2.0 then
                         setMinimapFeedback("Destination reached.")
                         autopilotenabled = false
@@ -103,6 +111,7 @@ local function handleAutopilot()
     end
 end
 
+-- Command to activate/deactivate autopilot
 RegisterCommand("autopilot", function()
     handleAutopilot()
 end, false)
