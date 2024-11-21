@@ -20,51 +20,34 @@ local function checkForObstacles()
     local playerPed = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(playerPed, false)
 
-    if not DoesEntityExist(vehicle) then
-        setMinimapFeedback("No vehicle detected.")
-        return
+    -- Validate vehicle existence
+    if not DoesEntityExist(vehicle) or not IsEntityAVehicle(vehicle) then
+        return -- Exit silently if no valid vehicle
     end
 
-    local speed = GetEntitySpeed(vehicle)
-    local radius = math.max(5.0, (speed or 0) / 2)
-
-    -- Get the vehicle's current position
+    -- Get vehicle position and detection area
     local startPos = GetEntityCoords(vehicle)
-    if not startPos or not startPos.x or not startPos.y or not startPos.z then
-        print("Error: Invalid startPos values:", startPos) -- Debugging output
-        return
-    end
+    local detectionDistance = 10.0 -- Distance to check in front of the vehicle
+    local detectionWidth = 2.0 -- Width of the detection box
 
-    -- Get the vehicle's forward direction
-    local forwardVector = GetEntityForwardVector(vehicle)
-    if not forwardVector or not forwardVector.x or not forwardVector.y or not forwardVector.z then
-        print("Error: Invalid forwardVector values:", forwardVector) -- Debugging output
-        return
-    end
+    -- Calculate detection box corners
+    local frontLeft = GetOffsetFromEntityInWorldCoords(vehicle, -detectionWidth, detectionDistance, 0.0)
+    local frontRight = GetOffsetFromEntityInWorldCoords(vehicle, detectionWidth, detectionDistance, 0.0)
 
-    -- Calculate the end position
-    local endPos = vector3(
-        startPos.x + forwardVector.x * radius,
-        startPos.y + forwardVector.y * radius,
-        startPos.z + forwardVector.z * radius
-    )
+    -- Check for nearby vehicles (no feedback or stopping)
+    local nearbyVehicle = GetClosestVehicle(frontLeft.x, frontLeft.y, frontLeft.z, detectionDistance, 0, 70)
 
-    -- Perform raycasting to detect obstacles
-    local rayHandle = StartShapeTestRay(
-        startPos.x, startPos.y, startPos.z,
-        endPos.x, endPos.y, endPos.z,
-        10, vehicle, 0
-    )
-    local _, hit, _, _, entity = GetShapeTestResult(rayHandle)
-
-    if hit then
-        local entityType = GetEntityType(entity)
-        if entityType == 2 or entityType == 3 then -- vehicle or object
-            TaskVehicleTempAction(playerPed, vehicle, 23, 1000) -- Emergency braking
-            setMinimapFeedback("Obstacle detected! Braking.")
-        end
+    -- Simply detect; do nothing further
+    if DoesEntityExist(nearbyVehicle) then
+        -- Placeholder for future logic if needed
     end
 end
+
+
+
+
+
+
 
 
 -- Obstacle detection thread
@@ -81,14 +64,23 @@ end)
 local function handleAutopilot()
     local playerPed = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(playerPed, false)
+
+    -- Ensure the player is in a vehicle
+    if not DoesEntityExist(vehicle) then
+        setMinimapFeedback("You need to be in a vehicle to activate Auto-Pilot.")
+        return
+    end
+
     local waypoint = nil
 
     -- Check if a waypoint is set and retrieve it
     if IsWaypointActive() then
         waypoint = Citizen.InvokeNative(0xFA7C7F0AADF25D09, GetFirstBlipInfoId(8), Citizen.ResultAsVector())
-    end
-
-    if not IsWaypointActive() or not waypoint then
+        if not waypoint or not waypoint.x or not waypoint.y or not waypoint.z then
+            setMinimapFeedback("Waypoint data is invalid. Please reset the waypoint.")
+            return
+        end
+    else
         setMinimapFeedback("Please set a valid waypoint.")
         return
     end
@@ -115,12 +107,21 @@ local function handleAutopilot()
                     break
                 end
 
+                -- Ensure the vehicle is still valid
+                if not DoesEntityExist(vehicle) then
+                    setMinimapFeedback("Auto-Pilot deactivated: Vehicle no longer exists.")
+                    autopilotenabled = false
+                    break
+                end
+
                 -- Check the current distance from the waypoint
                 local currentPos = GetEntityCoords(vehicle)
                 local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypoint.x, waypoint.y, waypoint.z)
 
                 -- Gradually slow down if close to the waypoint
-                if distance < 10.0 and GetEntitySpeed(vehicle) > 0 then
+                if distance < 50.0 and GetEntitySpeed(vehicle) > speed then
+                    SetVehicleForwardSpeed(vehicle, speed - 10.0) -- Gradual slowdown
+                elseif distance < 10.0 and GetEntitySpeed(vehicle) > 0 then
                     SetVehicleForwardSpeed(vehicle, math.max(GetEntitySpeed(vehicle) - 1.0, 0.0))
                 end
 
@@ -135,6 +136,7 @@ local function handleAutopilot()
         end)
     end
 end
+
 
 -- Command to activate/deactivate autopilot
 RegisterCommand("autopilot", function()
