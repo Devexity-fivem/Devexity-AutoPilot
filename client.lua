@@ -16,6 +16,7 @@ local function setMinimapFeedback(message)
 end
 
 -- Function to handle autopilot logic
+-- Function to handle autopilot logic
 local function handleAutopilot()
     local playerPed = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(playerPed, false)
@@ -50,7 +51,7 @@ local function handleAutopilot()
     setMinimapFeedback("Auto-Pilot activated.")
     
     -- Set a reasonable speed (e.g., 20.0) and assign the driving task
-    TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 120.0, 2883621, 1.0)
+    TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 75.0, 2883621, 1.0)
 
     Citizen.CreateThread(function()
         if autopilotThreadActive then
