@@ -61,11 +61,12 @@ local function handleAutopilot(wanderMode)
             if autopilotWander then
                 -- Wandering logic: Pick random points
                 local x, y, z = table.unpack(GetEntityCoords(vehicle))
-                local randomX = x + math.random(-300, 300)
-                local randomY = y + math.random(-300, 300)
+                local randomX = x + math.random(-500, 500)
+                local randomY = y + math.random(-500, 500)
                 local groundZ = GetGroundZFor_3dCoord(randomX, randomY, z, 0)
                 
-                TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, 50.0, 2883621, 5.0)
+                TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, 25.0, 786603, 10.0)
+
 
                 Citizen.Wait(math.random(40000, 50000)) -- Wait a random time between 10-20 seconds before choosing a new point
             else
