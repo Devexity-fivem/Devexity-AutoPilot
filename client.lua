@@ -115,3 +115,8 @@ RegisterCommand("autopilot", function(source, args)
         handleAutopilot(false) -- Enable regular waypoint mode
     end
 end, false)
+
+
+
+-- print signature
+TriggerServerEvent("printToServerConsole")
