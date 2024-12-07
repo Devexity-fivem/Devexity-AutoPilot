@@ -1,5 +1,5 @@
 local veh, tesla_blip = nil, nil
-local autopilotenabled, pilot = false, false
+local autopilotenabled, autopilotWander, pilot = false, false, false
 local crash = true
 local autopilotThreadActive = false -- Prevent multiple threads
 
@@ -16,7 +16,7 @@ local function setMinimapFeedback(message, type)
 end
 
 -- Function to handle autopilot logic
-local function handleAutopilot()
+local function handleAutopilot(wanderMode)
     local playerPed = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(playerPed, false)
 
@@ -26,24 +26,11 @@ local function handleAutopilot()
         return
     end
 
-    local waypoint = nil
-
-    -- Check if a waypoint is set and retrieve it
-    if IsWaypointActive() then
-        waypoint = Citizen.InvokeNative(0xFA7C7F0AADF25D09, GetFirstBlipInfoId(8), Citizen.ResultAsVector())
-        if not waypoint or not waypoint.x or not waypoint.y or not waypoint.z then
-            setMinimapFeedback("Waypoint data is invalid. Please reset the waypoint.", 'error')
-            return
-        end
-    else
-        setMinimapFeedback("Please set a valid waypoint.", 'error')
-        return
-    end
-
     -- Prevent overlapping threads
     if autopilotenabled then
         -- If autopilot is already enabled, deactivate it
         autopilotenabled = false
+        autopilotWander = false
         setMinimapFeedback("Auto-Pilot deactivated.", 'inform')
         -- Stop the vehicle gradually
         TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
@@ -51,10 +38,8 @@ local function handleAutopilot()
     end
 
     autopilotenabled = true
-    setMinimapFeedback("Auto-Pilot activated.", 'success')
-
-    -- Set a reasonable speed and assign the driving task
-    TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 75.0, 2883621, 1.0)
+    autopilotWander = wanderMode
+    setMinimapFeedback(wanderMode and "Auto-Pilot (Wander) activated." or "Auto-Pilot activated.", 'success')
 
     Citizen.CreateThread(function()
         if autopilotThreadActive then
@@ -66,14 +51,6 @@ local function handleAutopilot()
         while autopilotenabled do
             Citizen.Wait(500)
 
-            -- If the waypoint is no longer active, cancel autopilot
-            if not IsWaypointActive() then
-                setMinimapFeedback("Auto-Pilot deactivated: No active waypoint.", 'inform')
-                autopilotenabled = false
-                TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
-                break
-            end
-
             -- Ensure the vehicle is still valid
             if not DoesEntityExist(vehicle) or IsEntityDead(vehicle) or not IsEntityAVehicle(vehicle) then
                 setMinimapFeedback("Auto-Pilot deactivated: Vehicle is no longer valid.", 'error')
@@ -81,24 +58,42 @@ local function handleAutopilot()
                 break
             end
 
-            -- Check if the player has toggled autopilot off via command
-            -- This is already handled by checking 'autopilotenabled'
+            -- Wandering mode logic
+            if autopilotWander then
+                local x, y, z = table.unpack(GetEntityCoords(vehicle))
+                local randomX = x + math.random(-500, 500)
+                local randomY = y + math.random(-500, 500)
+                local groundZ = GetGroundZFor_3dCoord(randomX, randomY, z, 0)
+                
+                TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, 50.0, 2883621, 1.0)
 
-            -- Check the current distance from the waypoint
-            local currentPos = GetEntityCoords(vehicle)
-            local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypoint.x, waypoint.y, waypoint.z)
+                Citizen.Wait(math.random(10000, 20000)) -- Wait a random time between 10-20 seconds before choosing a new point
+            else
+                -- Regular waypoint mode
+                if IsWaypointActive() then
+                    local waypoint = Citizen.InvokeNative(0xFA7C7F0AADF25D09, GetFirstBlipInfoId(8), Citizen.ResultAsVector())
+                    if waypoint and waypoint.x and waypoint.y and waypoint.z then
+                        TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 75.0, 2883621, 1.0)
 
-            -- Gradually slow down if close to the waypoint
-            if distance < 20.0 then
-                TaskVehicleTempAction(playerPed, vehicle, 6, 1000) -- Brake
-            end
-
-            -- Stop the vehicle once we reach the destination
-            if distance < 5.0 then
-                setMinimapFeedback("Destination reached.", 'success')
-                autopilotenabled = false
-                TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
-                break
+                        -- Stop the vehicle once we reach the destination
+                        local currentPos = GetEntityCoords(vehicle)
+                        local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypoint.x, waypoint.y, waypoint.z)
+                        if distance < 5.0 then
+                            setMinimapFeedback("Destination reached.", 'success')
+                            autopilotenabled = false
+                            TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
+                            break
+                        end
+                    else
+                        setMinimapFeedback("Waypoint data is invalid. Please reset the waypoint.", 'error')
+                        autopilotenabled = false
+                        break
+                    end
+                else
+                    setMinimapFeedback("Please set a valid waypoint.", 'error')
+                    autopilotenabled = false
+                    break
+                end
             end
         end
 
@@ -107,8 +102,11 @@ local function handleAutopilot()
 end
 
 -- Command to activate/deactivate autopilot
-RegisterCommand("autopilot", function()
-    handleAutopilot()
+RegisterCommand("autopilot", function(source, args)
+    local mode = args[1]
+    if mode == "wander" then
+        handleAutopilot(true) -- Enable wandering mode
+    else
+        handleAutopilot(false) -- Enable regular waypoint mode
+    end
 end, false)
-
-
