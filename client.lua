@@ -58,30 +58,33 @@ local function handleAutopilot(wanderMode)
                 break
             end
 
-            -- Wandering mode logic
             if autopilotWander then
+                -- Wandering logic: Pick random points
                 local x, y, z = table.unpack(GetEntityCoords(vehicle))
-                local randomX = x + math.random(-500, 500)
-                local randomY = y + math.random(-500, 500)
+                local randomX = x + math.random(-300, 300)
+                local randomY = y + math.random(-300, 300)
                 local groundZ = GetGroundZFor_3dCoord(randomX, randomY, z, 0)
                 
-                TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, 50.0, 2883621, 1.0)
+                TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, 50.0, 2883621, 5.0)
 
-                Citizen.Wait(math.random(20000, 30000)) -- Wait a random time between 10-20 seconds before choosing a new point
+                Citizen.Wait(math.random(40000, 50000)) -- Wait a random time between 10-20 seconds before choosing a new point
             else
-                -- Regular waypoint mode
+                -- Regular waypoint-following mode
                 if IsWaypointActive() then
                     local waypoint = Citizen.InvokeNative(0xFA7C7F0AADF25D09, GetFirstBlipInfoId(8), Citizen.ResultAsVector())
                     if waypoint and waypoint.x and waypoint.y and waypoint.z then
-                        TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 65.0, 2883621, 1.0)
+                        TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 75.0, 2883621, 3.0)
 
                         -- Stop the vehicle once we reach the destination
                         local currentPos = GetEntityCoords(vehicle)
                         local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypoint.x, waypoint.y, waypoint.z)
+
                         if distance < 5.0 then
                             setMinimapFeedback("Destination reached.", 'success')
                             autopilotenabled = false
                             TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
+                            ClearGpsMultiRoute() -- Clear GPS route
+                            SetWaypointOff() -- Remove the waypoint
                             break
                         end
                     else
@@ -90,8 +93,9 @@ local function handleAutopilot(wanderMode)
                         break
                     end
                 else
-                    setMinimapFeedback("Please set a valid waypoint.", 'error')
+                    setMinimapFeedback("Auto-Pilot deactivated: No active waypoint.", 'inform')
                     autopilotenabled = false
+                    TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
                     break
                 end
             end
