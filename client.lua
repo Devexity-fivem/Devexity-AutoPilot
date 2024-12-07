@@ -65,7 +65,7 @@ local function handleAutopilot(wanderMode)
                 local randomY = y + math.random(-500, 500)
                 local groundZ = GetGroundZFor_3dCoord(randomX, randomY, z, 0)
                 
-                TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, 50.0, 786603, 1.0)
+                TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, 50.0, 2883621, 1.0)
 
                 Citizen.Wait(math.random(20000, 30000)) -- Wait a random time between 10-20 seconds before choosing a new point
             else
@@ -73,7 +73,7 @@ local function handleAutopilot(wanderMode)
                 if IsWaypointActive() then
                     local waypoint = Citizen.InvokeNative(0xFA7C7F0AADF25D09, GetFirstBlipInfoId(8), Citizen.ResultAsVector())
                     if waypoint and waypoint.x and waypoint.y and waypoint.z then
-                        TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 75.0, 2883621, 1.0)
+                        TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 65.0, 2883621, 1.0)
 
                         -- Stop the vehicle once we reach the destination
                         local currentPos = GetEntityCoords(vehicle)
