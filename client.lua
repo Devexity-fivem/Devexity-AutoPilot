@@ -65,9 +65,9 @@ local function handleAutopilot(wanderMode)
                 local randomY = y + math.random(-500, 500)
                 local groundZ = GetGroundZFor_3dCoord(randomX, randomY, z, 0)
                 
-                TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, 50.0, 2883621, 1.0)
+                TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, 50.0, 786603, 1.0)
 
-                Citizen.Wait(math.random(10000, 20000)) -- Wait a random time between 10-20 seconds before choosing a new point
+                Citizen.Wait(math.random(20000, 30000)) -- Wait a random time between 10-20 seconds before choosing a new point
             else
                 -- Regular waypoint mode
                 if IsWaypointActive() then
