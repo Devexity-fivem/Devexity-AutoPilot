@@ -118,5 +118,6 @@ end, false)
 
 
 
--- print signature
-TriggerServerEvent("printToServerConsole")
+
+
+
