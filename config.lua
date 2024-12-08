@@ -1,6 +1,5 @@
 
--- config.lua
--- Configuration for Autopilot Script
+
 
 Config = {
     WAYPOINT_THRESHOLD = 5.0,       -- Distance threshold to consider waypoint reached (in units)
