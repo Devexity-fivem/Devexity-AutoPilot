@@ -1,4 +1,4 @@
--- Autopilot State Variables
+
 local autopilotEnabled = false
 local autopilotWander = false
 local autopilotThreadActive = false -- Prevent multiple threads
@@ -81,7 +81,7 @@ local function handleAutopilot(wanderMode)
 
         Citizen.CreateThread(function()
             while autopilotEnabled do
-                Citizen.Wait(Config.THREAD_WAIT)
+                Citizen.Wait(500) -- Fixed THREAD_WAIT value (500 milliseconds)
 
                 -- Re-fetch player and vehicle status
                 playerPed = PlayerPedId()
@@ -104,8 +104,8 @@ local function handleAutopilot(wanderMode)
                 if autopilotWander then
                     -- Wander Mode: Select random destination within specified distance
                     local x, y, z = table.unpack(GetEntityCoords(vehicle))
-                    local randomX = x + math.random(-Config.WANDER_DISTANCE, Config.WANDER_DISTANCE)
-                    local randomY = y + math.random(-Config.WANDER_DISTANCE, Config.WANDER_DISTANCE)
+                    local randomX = x + math.random(-500, 500) -- Fixed WANDER_DISTANCE value (500 units)
+                    local randomY = y + math.random(-500, 500) -- Fixed WANDER_DISTANCE value (500 units)
                     local groundZ = GetGroundZFor_3dCoord(randomX, randomY, z, false)
 
                     if not groundZ then
@@ -115,7 +115,7 @@ local function handleAutopilot(wanderMode)
                     TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, Config.DRIVE_SPEED_WANDER, Config.DRIVE_STYLE_WANDER, 10.0)
 
                     -- Wait for a random duration before selecting a new point
-                    local waitTime = math.random(Config.WANDER_WAIT_MIN, Config.WANDER_WAIT_MAX)
+                    local waitTime = math.random(40000, 50000) -- Fixed WANDER_WAIT_MIN and WANDER_WAIT_MAX values (40-50 seconds)
                     Citizen.Wait(waitTime)
                 else
                     -- Waypoint Mode: Follow GPS route
@@ -129,7 +129,7 @@ local function handleAutopilot(wanderMode)
                             local currentPos = GetEntityCoords(vehicle)
                             local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypointCoords.x, waypointCoords.y, waypointCoords.z)
 
-                            if distance < Config.WAYPOINT_THRESHOLD then
+                            if distance < Config.WAYPOINT_THRESHOLD then -- Use WAYPOINT_THRESHOLD from config
                                 setMinimapFeedback("Destination reached.", 'success')
                                 autopilotEnabled = false
                                 stopVehicle(playerPed, vehicle)
