@@ -1,7 +1,7 @@
-
+-- State Variables
 local autopilotEnabled = false
 local autopilotWander = false
-local autopilotThreadActive = false -- Prevent multiple threads
+local autopilotThreadActive = false
 
 -- Helper function for notifications
 local function setMinimapFeedback(message, type)
@@ -11,24 +11,42 @@ local function setMinimapFeedback(message, type)
     else
         SetNotificationTextEntry("STRING")
         AddTextComponentString(message)
-        DrawNotification(false, true) -- Better compatibility
+        DrawNotification(false, true)
     end
 end
 
--- Function to stop the vehicle smoothly
-local function stopVehicle(playerPed, vehicle)
-    TaskVehicleTempAction(playerPed, vehicle, Config.TEMP_ACTION_STOP, Config.TEMP_ACTION_DURATION)
+-- Gradual stop for the vehicle
+local function stopVehicleGradually(playerPed, vehicle)
+    if DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == playerPed then
+        TaskVehicleTempAction(playerPed, vehicle, 1, 3000) -- Gradually stop the vehicle
+        Citizen.Wait(3000) -- Allow time for the vehicle to stop
+        ClearPedTasks(playerPed) -- Clear tasks once stopped
+    end
 end
 
--- Function to check if the vehicle is allowed for autopilot
+-- Stop Autopilot
+local function stopAutopilot()
+    autopilotEnabled = false
+    autopilotWander = false
+
+    local playerPed = PlayerPedId()
+    local vehicle = GetVehiclePedIsIn(playerPed, false)
+
+    if DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == playerPed then
+        stopVehicleGradually(playerPed, vehicle)
+    end
+
+    autopilotThreadActive = false
+    setMinimapFeedback("Auto-Pilot deactivated.", 'inform')
+end
+
+-- Validate Vehicle
 local function isVehicleAllowed(vehicle)
     if not Config.VEHICLE_RESTRICTIONS.ENABLED then
-        return true -- No restrictions enabled, allow any vehicle
+        return true -- No restrictions
     end
 
-    if not vehicle then
-        return false
-    end
+    if not vehicle then return false end
 
     local model = GetEntityModel(vehicle)
     local modelName = GetDisplayNameFromVehicleModel(model):lower()
@@ -39,134 +57,105 @@ local function isVehicleAllowed(vehicle)
         end
     end
 
-    return false -- Vehicle not in the allowed list
+    return false -- Not in allowed list
 end
 
--- Function to handle autopilot logic
-local function handleAutopilot(wanderMode)
+-- Start Autopilot Logic
+local function startAutopilot(wanderMode)
     local playerPed = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(playerPed, false)
 
-    -- Ensure the player is in a vehicle and is the driver
     if not DoesEntityExist(vehicle) or GetPedInVehicleSeat(vehicle, -1) ~= playerPed then
-        setMinimapFeedback("You need to be the driver of a vehicle to activate Auto-Pilot.", 'error')
+        setMinimapFeedback("You must be driving a vehicle to activate Auto-Pilot.", 'error')
         return
     end
 
-    -- Check if the vehicle is allowed
     if not isVehicleAllowed(vehicle) then
-        setMinimapFeedback("Auto-Pilot cannot be used in this vehicle.", 'error')
+        setMinimapFeedback("This vehicle is not allowed for Auto-Pilot.", 'error')
         return
     end
 
     -- Toggle autopilot state
     if autopilotEnabled then
-        -- Deactivate autopilot
-        autopilotEnabled = false
-        autopilotWander = false
-        setMinimapFeedback("Auto-Pilot deactivated.", 'inform')
-        stopVehicle(playerPed, vehicle)
+        stopAutopilot()
         return
     end
 
-    -- Activate autopilot
     autopilotEnabled = true
     autopilotWander = wanderMode
     local modeText = wanderMode and "Wander" or "Waypoint"
     setMinimapFeedback("Auto-Pilot (" .. modeText .. ") activated.", 'success')
 
-    -- Start autopilot thread if not already active
+    -- Start Autopilot Thread
     if not autopilotThreadActive then
-        autopilotThreadActive = true
-
         Citizen.CreateThread(function()
+            autopilotThreadActive = true
             while autopilotEnabled do
-                Citizen.Wait(500) -- Fixed THREAD_WAIT value (500 milliseconds)
+                Citizen.Wait(Config.THREAD_WAIT)
 
-                -- Re-fetch player and vehicle status
                 playerPed = PlayerPedId()
                 vehicle = GetVehiclePedIsIn(playerPed, false)
 
-                -- Validate vehicle
-                if not DoesEntityExist(vehicle) or IsEntityDead(vehicle) or not IsEntityAVehicle(vehicle) or GetPedInVehicleSeat(vehicle, -1) ~= playerPed then
-                    setMinimapFeedback("Auto-Pilot deactivated: Vehicle is no longer valid.", 'error')
-                    autopilotEnabled = false
-                    break
-                end
-
-                -- Check if the vehicle is allowed (in case restrictions were changed)
-                if not isVehicleAllowed(vehicle) then
-                    setMinimapFeedback("Auto-Pilot deactivated: Vehicle is not allowed.", 'error')
-                    autopilotEnabled = false
+                if not DoesEntityExist(vehicle) or GetPedInVehicleSeat(vehicle, -1) ~= playerPed then
+                    setMinimapFeedback("Auto-Pilot deactivated: Vehicle invalid.", 'error')
+                    stopAutopilot()
                     break
                 end
 
                 if autopilotWander then
-                    -- Wander Mode: Select random destination within specified distance
+                    -- Wander Mode: Random destinations
                     local x, y, z = table.unpack(GetEntityCoords(vehicle))
-                    local randomX = x + math.random(-500, 500) -- Fixed WANDER_DISTANCE value (500 units)
-                    local randomY = y + math.random(-500, 500) -- Fixed WANDER_DISTANCE value (500 units)
-                    local groundZ = GetGroundZFor_3dCoord(randomX, randomY, z, false)
-
-                    if not groundZ then
-                        groundZ = z -- Fallback to current Z if ground not found
-                    end
+                    local randomX = x + math.random(-Config.WANDER_DISTANCE, Config.WANDER_DISTANCE)
+                    local randomY = y + math.random(-Config.WANDER_DISTANCE, Config.WANDER_DISTANCE)
+                    local groundZ = GetGroundZFor_3dCoord(randomX, randomY, z, false) or z
 
                     TaskVehicleDriveToCoordLongrange(playerPed, vehicle, randomX, randomY, groundZ, Config.DRIVE_SPEED_WANDER, Config.DRIVE_STYLE_WANDER, 10.0)
-
-                    -- Wait for a random duration before selecting a new point
-                    local waitTime = math.random(40000, 50000) -- Fixed WANDER_WAIT_MIN and WANDER_WAIT_MAX values (40-50 seconds)
-                    Citizen.Wait(waitTime)
+                    Citizen.Wait(math.random(Config.WANDER_WAIT_MIN, Config.WANDER_WAIT_MAX))
                 else
-                    -- Waypoint Mode: Follow GPS route
+                    -- Waypoint Mode
                     if IsWaypointActive() then
-                        local waypointBlip = GetFirstBlipInfoId(8) -- 8 corresponds to the waypoint type
+                        local waypointBlip = GetFirstBlipInfoId(8) -- Waypoint blip type
                         if DoesBlipExist(waypointBlip) then
                             local waypointCoords = GetBlipInfoIdCoord(waypointBlip)
                             TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypointCoords.x, waypointCoords.y, waypointCoords.z, Config.DRIVE_SPEED_WAYPOINT, Config.DRIVE_STYLE_WAYPOINT, 3.0)
 
-                            -- Check distance to waypoint
+                            -- Check distance
                             local currentPos = GetEntityCoords(vehicle)
                             local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypointCoords.x, waypointCoords.y, waypointCoords.z)
 
-                            if distance < Config.WAYPOINT_THRESHOLD then -- Use WAYPOINT_THRESHOLD from config
+                            if distance < Config.WAYPOINT_THRESHOLD then
                                 setMinimapFeedback("Destination reached.", 'success')
-                                autopilotEnabled = false
-                                stopVehicle(playerPed, vehicle)
-                                ClearGpsMultiRoute()
-                                SetWaypointOff()
+                                stopAutopilot()
                                 break
                             end
                         else
-                            setMinimapFeedback("Waypoint data is invalid. Please set a new waypoint.", 'error')
-                            autopilotEnabled = false
+                            setMinimapFeedback("Waypoint invalid. Set a new one.", 'error')
+                            stopAutopilot()
                             break
                         end
                     else
-                        setMinimapFeedback("Auto-Pilot deactivated: No active waypoint.", 'inform')
-                        autopilotEnabled = false
-                        stopVehicle(playerPed, vehicle)
+                        setMinimapFeedback("No active waypoint. Auto-Pilot deactivated.", 'inform')
+                        stopAutopilot()
                         break
                     end
                 end
             end
-
-            autopilotThreadActive = false -- Mark thread as inactive
+            autopilotThreadActive = false -- Ensure thread cleanup
         end)
     else
-        setMinimapFeedback("Auto-Pilot thread is already running.", 'error')
+        setMinimapFeedback("Auto-Pilot thread already running.", 'error')
     end
 end
 
--- Command to activate/deactivate autopilot
+-- Command to toggle autopilot
 RegisterCommand("autopilot", function(source, args)
     local mode = args[1]
     if mode == "wander" then
-        handleAutopilot(true) -- Enable wandering mode
+        startAutopilot(true) -- Wander mode
     else
-        handleAutopilot(false) -- Enable regular waypoint mode
+        startAutopilot(false) -- Waypoint mode
     end
 end, false)
 
--- Optional: Add a key binding for autopilot activation
---RegisterKeyMapping('autopilot', 'Toggle Auto-Pilot', 'keyboard', 'Y')
+-- Optional: Add a key binding
+-- RegisterKeyMapping('autopilot', 'Toggle Auto-Pilot', 'keyboard', 'F6')
