@@ -55,7 +55,6 @@ local function stopAutopilot()
 
     autopilotState.threadActive = false
     setMinimapFeedback("Auto-Pilot deactivated.", NOTIFY_TYPES.INFORM)
-    print("[AutoPilot] Auto-Pilot deactivated.") -- Debug Log
 end
 
 -- Function: Validate if the Vehicle is Allowed
@@ -86,19 +85,15 @@ local function startAutopilot(wanderMode)
     local playerPed = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(playerPed, false)
 
-    print("[AutoPilot] Attempting to start Auto-Pilot. Mode:", wanderMode and "Wander" or "Waypoint") -- Debug Log
-
     -- Validate if the player is in a vehicle and is the driver
     if not (DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == playerPed) then
         setMinimapFeedback("You must be driving a vehicle to activate Auto-Pilot.", NOTIFY_TYPES.ERROR)
-        print("[AutoPilot] Activation failed: Player is not driving a vehicle.") -- Debug Log
         return
     end
 
     -- Validate if the vehicle is allowed
     if not isVehicleAllowed(vehicle) then
         setMinimapFeedback("This vehicle is not allowed for Auto-Pilot.", NOTIFY_TYPES.ERROR)
-        print("[AutoPilot] Activation failed: Vehicle not allowed.") -- Debug Log
         return
     end
 
@@ -112,7 +107,6 @@ local function startAutopilot(wanderMode)
     autopilotState.wander = wanderMode
     local modeText = wanderMode and "Wander" or "Waypoint"
     setMinimapFeedback("Auto-Pilot (" .. modeText .. ") activated.", NOTIFY_TYPES.SUCCESS)
-    print("[AutoPilot] Auto-Pilot activated in " .. modeText .. " mode.") -- Debug Log
 
     -- Start Autopilot Thread if not already active
     if not autopilotState.threadActive then
@@ -127,7 +121,6 @@ local function startAutopilot(wanderMode)
                 -- Validate vehicle status continuously
                 if not (DoesEntityExist(currentVehicle) and GetPedInVehicleSeat(currentVehicle, -1) == currentPlayerPed) then
                     setMinimapFeedback("Auto-Pilot deactivated: Vehicle invalid.", NOTIFY_TYPES.ERROR)
-                    print("[AutoPilot] Deactivation: Vehicle invalid.") -- Debug Log
                     stopAutopilot()
                     break
                 end
@@ -139,7 +132,6 @@ local function startAutopilot(wanderMode)
                     local randomY = coords.y + math.random(-Config.WANDER_DISTANCE, Config.WANDER_DISTANCE)
                     local success, groundZ = GetGroundZFor_3dCoord(randomX, randomY, coords.z, false)
                     groundZ = success and groundZ or coords.z
-                    print(string.format("[AutoPilot] Wander Mode: Driving to (%.2f, %.2f, %.2f)", randomX, randomY, groundZ)) -- Debug Log
 
                     TaskVehicleDriveToCoordLongrange(currentPlayerPed, currentVehicle, randomX, randomY, groundZ, Config.DRIVE_SPEED_WANDER, Config.DRIVE_STYLE_WANDER, 10.0)
                     Citizen.Wait(math.random(Config.WANDER_WAIT_MIN, Config.WANDER_WAIT_MAX))
@@ -151,7 +143,6 @@ local function startAutopilot(wanderMode)
                             local waypointCoords = GetBlipInfoIdCoord(waypointBlip)
                             local success, groundZ = GetGroundZFor_3dCoord(waypointCoords.x, waypointCoords.y, waypointCoords.z, false)
                             groundZ = success and groundZ or waypointCoords.z
-                            print(string.format("[AutoPilot] Waypoint Mode: Driving to (%.2f, %.2f, %.2f)", waypointCoords.x, waypointCoords.y, groundZ)) -- Debug Log
 
                             TaskVehicleDriveToCoordLongrange(currentPlayerPed, currentVehicle, waypointCoords.x, waypointCoords.y, groundZ, Config.DRIVE_SPEED_WAYPOINT, Config.DRIVE_STYLE_WAYPOINT, 3.0)
 
@@ -159,34 +150,27 @@ local function startAutopilot(wanderMode)
                             local currentPos = GetEntityCoords(currentVehicle)
                             local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypointCoords.x, waypointCoords.y, waypointCoords.z)
 
-                            print(string.format("[AutoPilot] Current Distance to Waypoint: %.2f", distance)) -- Debug Log
-
                             if distance < Config.WAYPOINT_THRESHOLD then
                                 setMinimapFeedback("Destination reached.", NOTIFY_TYPES.SUCCESS)
-                                print("[AutoPilot] Destination reached.") -- Debug Log
                                 stopAutopilot()
                                 break
                             end
                         else
                             setMinimapFeedback("Waypoint invalid. Set a new one.", NOTIFY_TYPES.ERROR)
-                            print("[AutoPilot] Waypoint invalid.") -- Debug Log
                             stopAutopilot()
                             break
                         end
                     else
                         setMinimapFeedback("No active waypoint. Auto-Pilot deactivated.", NOTIFY_TYPES.INFORM)
-                        print("[AutoPilot] No active waypoint. Deactivating.") -- Debug Log
                         stopAutopilot()
                         break
                     end
                 end
             end
             autopilotState.threadActive = false -- Ensure thread is marked inactive upon completion
-            print("[AutoPilot] Autopilot thread terminated.") -- Debug Log
         end)
     else
         setMinimapFeedback("Auto-Pilot thread already running.", NOTIFY_TYPES.ERROR)
-        print("[AutoPilot] Attempted to start a new thread, but one is already running.") -- Debug Log
     end
 end
 
@@ -200,7 +184,6 @@ RegisterCommand("autopilot", function(source, args)
         startAutopilot(false) -- Activate Waypoint Mode
     else
         setMinimapFeedback("Invalid mode. Use 'wander' or 'waypoint'.", NOTIFY_TYPES.ERROR)
-        print("[AutoPilot] Invalid mode entered:", mode) -- Debug Log
     end
 end, false)
 
