@@ -1,234 +1,115 @@
--- ================================================
---                 Auto-Pilot Script
---         Wander or Waypoint Mode without Debug
--- ================================================
 
-local QBCore = exports['qb-core']:GetCoreObject()
+local veh, tesla_blip = nil, nil
+local autopilotenabled, pilot = false, false
 
--- ==================================
---           Config Shortcuts
--- ==================================
-local WAYPOINT_THRESHOLD    = Config.WAYPOINT_THRESHOLD
-local DRIVE_SPEED_WANDER    = Config.DRIVE_SPEED_WANDER
-local DRIVE_SPEED_WAYPOINT  = Config.DRIVE_SPEED_WAYPOINT
-local DRIVE_STYLE_WANDER    = Config.DRIVE_STYLE_WANDER
-local DRIVE_STYLE_WAYPOINT  = Config.DRIVE_STYLE_WAYPOINT
-local THREAD_WAIT           = Config.THREAD_WAIT
+local crash = true
+local autopilotThreadActive = false -- Prevent multiple threads
 
-local MIN_VEHICLE_ENGINE_HEALTH = Config.MIN_VEHICLE_ENGINE_HEALTH
-local MIN_VEHICLE_BODY_HEALTH   = Config.MIN_VEHICLE_BODY_HEALTH
-local VEH_RESTR_ENABLED         = Config.VEHICLE_RESTRICTIONS.ENABLED
-
--- Allowed vehicles set for O(1) lookups if enabled
-local allowedVehiclesSet = {}
-if VEH_RESTR_ENABLED then
-    for _, vName in ipairs(Config.VEHICLE_RESTRICTIONS.ALLOWED_VEHICLES) do
-        allowedVehiclesSet[string.lower(vName)] = true
-    end
-end
-
--- ==================================
---         Utility Functions
--- ==================================
-local NOTIFY_TYPES = {
-    SUCCESS = 'success',
-    ERROR   = 'error',
-    INFORM  = 'inform'
-}
-
-local function notify(msg, t)
-    t = t or NOTIFY_TYPES.SUCCESS
+-- Helper function for notifications
+local function setMinimapFeedback(message)
+    local QBCore = exports['qb-core']:GetCoreObject()
     if QBCore and QBCore.Functions and QBCore.Functions.Notify then
-        QBCore.Functions.Notify(msg, t)
+        QBCore.Functions.Notify(message, 'success') -- 'success' can be 'error', 'inform', etc.
     else
         SetNotificationTextEntry("STRING")
-        AddTextComponentString(msg)
-        DrawNotification(false, true)
+        AddTextComponentString(message)
+        DrawNotification(0, 1)
     end
 end
 
-local function stopVehicleGradually(playerPed, vehicle)
-    if DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == playerPed then
-        TaskVehicleTempAction(playerPed, vehicle, 4, 1000) -- Smart brake
-        Citizen.Wait(1000)
-        ClearPedTasks(playerPed)
-    end
-end
-
-local function isVehicleAllowed(vehicle)
-    if not VEH_RESTR_ENABLED then return true end
-    if not DoesEntityExist(vehicle) then return false end
-    local modelName = string.lower(GetDisplayNameFromVehicleModel(GetEntityModel(vehicle)))
-    return allowedVehiclesSet[modelName] == true
-end
-
-local function vehicleHealthCheck(vehicle)
-    if not DoesEntityExist(vehicle) then return false end
-    local engineHealth = GetVehicleEngineHealth(vehicle)
-    local bodyHealth   = GetVehicleBodyHealth(vehicle)
-    local onFire       = IsEntityOnFire(vehicle)
-
-    if onFire then
-        return false
-    end
-
-    if engineHealth < MIN_VEHICLE_ENGINE_HEALTH then
-        return false
-    end
-
-    if bodyHealth < MIN_VEHICLE_BODY_HEALTH then
-        return false
-    end
-
-    return true
-end
-
--- ==================================
---          Autopilot "Class"
--- ==================================
-local Autopilot = {
-    enabled      = false,
-    wander       = false,
-    threadActive = false
-}
-
-function Autopilot:start(wanderMode)
+-- Function to handle autopilot logic
+local function handleAutopilot()
     local playerPed = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(playerPed, false)
 
-    if not (DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == playerPed) then
-        notify("You must be driving a vehicle to activate Auto-Pilot.", NOTIFY_TYPES.ERROR)
+    -- Ensure the player is in a vehicle and is the driver
+    if not DoesEntityExist(vehicle) or GetPedInVehicleSeat(vehicle, -1) ~= playerPed then
+        setMinimapFeedback("You need to be the driver of a vehicle to activate Auto-Pilot.")
         return
     end
 
-    if not isVehicleAllowed(vehicle) then
-        notify("This vehicle is not allowed for Auto-Pilot.", NOTIFY_TYPES.ERROR)
+    local waypoint = nil
+
+    -- Check if a waypoint is set and retrieve it
+    if IsWaypointActive() then
+        waypoint = Citizen.InvokeNative(0xFA7C7F0AADF25D09, GetFirstBlipInfoId(8), Citizen.ResultAsVector())
+
+        if not waypoint or not waypoint.x or not waypoint.y or not waypoint.z then
+            setMinimapFeedback("Waypoint data is invalid. Please reset the waypoint.")
+            return
+
+
+
+
+        end
+    else
+        setMinimapFeedback("Please set a valid waypoint.")
         return
     end
 
-    if not wanderMode and not IsWaypointActive() then
-        if Config.FALLBACK_TO_WANDER_IF_NO_WAYPOINT then
-            wanderMode = true
-        else
-            notify("No active waypoint. Set a waypoint or use Wander mode.", NOTIFY_TYPES.ERROR)
+    -- Prevent overlapping threads
+    if autopilotenabled then
+        setMinimapFeedback("Auto-Pilot is already active.")
+        return
+    end
+
+    autopilotenabled = true
+    setMinimapFeedback("Auto-Pilot activated.")
+    
+    -- Set a reasonable speed (e.g., 20.0) and assign the driving task
+    TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 120.0, 2883621, 1.0)
+
+
+    Citizen.CreateThread(function()
+        if autopilotThreadActive then
+            setMinimapFeedback("Auto-Pilot thread is already running.")
             return
         end
-    end
+        autopilotThreadActive = true
 
-    if self.enabled then
-        self:stop()
-        return
-    end
+        while autopilotenabled do
+            Wait(500)
 
-    self.enabled = true
-    self.wander = wanderMode
-    local modeText = wanderMode and "Wander" or "Waypoint"
-    notify("Auto-Pilot (" .. modeText .. ") activated.", NOTIFY_TYPES.SUCCESS)
-
-    if not self.threadActive then
-        self.threadActive = true
-        Citizen.CreateThread(function()
-            self:runMainLoop()
-        end)
-    else
-        notify("Auto-Pilot thread already running.", NOTIFY_TYPES.ERROR)
-    end
-end
-
-function Autopilot:stop()
-    self.enabled = false
-    self.wander = false
-    self.threadActive = false
-
-    local playerPed = PlayerPedId()
-    local vehicle = GetVehiclePedIsIn(playerPed, false)
-    if DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == playerPed then
-        stopVehicleGradually(playerPed, vehicle)
-    end
-
-    notify("Auto-Pilot deactivated.", NOTIFY_TYPES.INFORM)
-end
-
-function Autopilot:runMainLoop()
-    while self.enabled do
-        Citizen.Wait(THREAD_WAIT)
-
-        local playerPed = PlayerPedId()
-        local vehicle = GetVehiclePedIsIn(playerPed, false)
-
-        if not (DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == playerPed) then
-            notify("Auto-Pilot deactivated: Vehicle invalid or no longer in driver seat.", NOTIFY_TYPES.ERROR)
-            self:stop()
-            break
-        end
-
-        if not vehicleHealthCheck(vehicle) then
-            notify("Auto-Pilot deactivated: Vehicle is damaged/unfit.", NOTIFY_TYPES.ERROR)
-            self:stop()
-            break
-        end
-
-        if self.wander then
-            if not self:handleWander(playerPed, vehicle) then
+            -- If the waypoint is no longer active, cancel autopilot
+            if not IsWaypointActive() then
+                setMinimapFeedback("Auto-Pilot deactivated: No active waypoint.")
+                autopilotenabled = false
+                TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
                 break
             end
-        else
-            if not self:handleWaypoint(playerPed, vehicle) then
+
+            -- Ensure the vehicle is still valid
+            if not DoesEntityExist(vehicle) then
+                setMinimapFeedback("Auto-Pilot deactivated: Vehicle no longer exists.")
+                autopilotenabled = false
+                break
+            end
+
+            -- Check the current distance from the waypoint
+            local currentPos = GetEntityCoords(vehicle)
+            local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypoint.x, waypoint.y, waypoint.z)
+
+            -- Gradually slow down if close to the waypoint
+            if distance < 20.0 then
+                TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Temporary stop to simulate slowing down
+
+
+            end
+
+            -- Stop the vehicle once we reach the destination
+            if distance < 5.0 then
+                setMinimapFeedback("Destination reached.")
+                autopilotenabled = false
+                TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
                 break
             end
         end
-    end
 
-    self.threadActive = false
+        autopilotThreadActive = false -- Mark thread as inactive
+    end)
 end
 
-function Autopilot:handleWander(playerPed, vehicle)
-    TaskVehicleDriveWander(playerPed, vehicle, DRIVE_SPEED_WANDER, DRIVE_STYLE_WANDER)
-    return true
-end
-
-function Autopilot:handleWaypoint(playerPed, vehicle)
-    if not IsWaypointActive() then
-        notify("No active waypoint. Auto-Pilot deactivated.", NOTIFY_TYPES.INFORM)
-        self:stop()
-        return false
-    end
-
-    local waypointBlip = GetFirstBlipInfoId(8)
-    if not DoesBlipExist(waypointBlip) then
-        notify("Waypoint invalid. Set a new one.", NOTIFY_TYPES.ERROR)
-        self:stop()
-        return false
-    end
-
-    local waypointCoords = GetBlipInfoIdCoord(waypointBlip)
-    local currentPos = GetEntityCoords(vehicle)
-    local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypointCoords.x, waypointCoords.y, waypointCoords.z)
-
-    if distance < WAYPOINT_THRESHOLD then
-        notify("Destination reached.", NOTIFY_TYPES.SUCCESS)
-        self:stop()
-        return false
-    else
-        TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypointCoords.x, waypointCoords.y, waypointCoords.z, DRIVE_SPEED_WAYPOINT, DRIVE_STYLE_WAYPOINT, 5.0)
-    end
-    return true
-end
-
--- ==================================
---       Command Registration
--- ==================================
-
-RegisterCommand("autopilot", function(_, args)
-    local mode = string.lower(args[1] or "")
-    if mode == "wander" then
-        Autopilot:start(true)
-    elseif mode == "waypoint" or mode == "" then
-        Autopilot:start(false)
-    else
-        notify("Invalid mode. Use 'wander' or 'waypoint'.", NOTIFY_TYPES.ERROR)
-    end
+-- Command to activate/deactivate autopilot
+RegisterCommand("autopilot", function()
+    handleAutopilot()
 end, false)
-
--- Optional: Add a Key Mapping
--- RegisterKeyMapping('autopilot', 'Toggle Auto-Pilot', 'keyboard', 'F6')
