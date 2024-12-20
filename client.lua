@@ -55,7 +55,7 @@ local function handleAutopilot()
     -- Activate autopilot
     autopilotenabled = true
     setMinimapFeedback("Auto-Pilot activated.")
-    TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 75.0, 786603, 1.0)
+    TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 75.0, 787004, 1.0)
 
     Citizen.CreateThread(function()
         autopilotThreadActive = true
