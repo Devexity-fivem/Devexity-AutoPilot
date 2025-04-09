@@ -1,100 +1,91 @@
 local veh, tesla_blip = nil, nil
-local autopilotenabled, pilot = false, false
-local crash = true
-local autopilotThreadActive = false -- Prevent multiple threads
+local autopilotEnabled = false
+local autopilotThreadActive = false
 
--- Helper function for notifications
-local function setMinimapFeedback(message)
+-- Notify wrapper
+local function notify(msg, type)
     local QBCore = exports['qb-core']:GetCoreObject()
-    if QBCore and QBCore.Functions and QBCore.Functions.Notify then
-        QBCore.Functions.Notify(message, 'success') -- 'success' can be 'error', 'inform', etc.
+    if QBCore?.Functions?.Notify then
+        QBCore.Functions.Notify(msg, type or 'inform')
     else
         SetNotificationTextEntry("STRING")
-        AddTextComponentString(message)
+        AddTextComponentString(msg)
         DrawNotification(0, 1)
     end
 end
 
+-- Get current waypoint vector3
+local function getWaypointCoords()
+    if not IsWaypointActive() then return nil end
+    local blip = GetFirstBlipInfoId(8)
+    local coords = Citizen.InvokeNative(0xFA7C7F0AADF25D09, blip, Citizen.ResultAsVector())
+    if coords and coords.x and coords.y and coords.z then
+        return coords
+    end
+    return nil
+end
 
--- Function to handle autopilot logic
-local function handleAutopilot()
+-- Cancel autopilot and reset tasks
+local function stopAutopilot(vehicle, playerPed, reason)
+    autopilotEnabled = false
+    if reason then notify(reason, 'error') end
+    if DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == playerPed then
+        TaskVehicleTempAction(playerPed, vehicle, 27, 3000)
+    end
+    ClearPedTasks(playerPed)
+end
+
+-- Main autopilot logic
+local function startAutopilot()
     local playerPed = PlayerPedId()
     local vehicle = GetVehiclePedIsIn(playerPed, false)
 
-    -- If autopilot is already active, deactivate it
-    if autopilotenabled then
-        autopilotenabled = false
-        setMinimapFeedback("Auto-Pilot deactivated.")
-        if DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == playerPed then
-            TaskVehicleTempAction(playerPed, vehicle, 27, 3000) -- Gradual stop
-            ClearPedTasks(playerPed) -- Stop AI driving task
-        end
+    if autopilotEnabled then
+        stopAutopilot(vehicle, playerPed, "Auto-Pilot deactivated.")
         return
     end
 
-    -- Ensure the player is in a vehicle and is the driver
     if not DoesEntityExist(vehicle) or GetPedInVehicleSeat(vehicle, -1) ~= playerPed then
-        setMinimapFeedback("You need to be the driver of a vehicle to activate Auto-Pilot.")
-        return
+        return notify("You must be driving a vehicle to use Auto-Pilot.", "error")
     end
 
-    local waypoint = nil
-
-    -- Check if a waypoint is set and retrieve it
-    if IsWaypointActive() then
-        waypoint = Citizen.InvokeNative(0xFA7C7F0AADF25D09, GetFirstBlipInfoId(8), Citizen.ResultAsVector())
-        if not waypoint or not waypoint.x or not waypoint.y or not waypoint.z then
-            setMinimapFeedback("Waypoint data is invalid. Please reset the waypoint.")
-            return
-        end
-    else
-        setMinimapFeedback("Please set a valid waypoint.")
-        return
+    local waypoint = getWaypointCoords()
+    if not waypoint then
+        return notify("Please set a valid waypoint before enabling Auto-Pilot.", "error")
     end
 
-    -- Activate autopilot
-    autopilotenabled = true
-    setMinimapFeedback("Auto-Pilot activated.")
+    autopilotEnabled = true
+    notify("Auto-Pilot activated.", "success")
     TaskVehicleDriveToCoordLongrange(playerPed, vehicle, waypoint.x, waypoint.y, waypoint.z, 75.0, 787004, 1.0)
 
-    Citizen.CreateThread(function()
-        autopilotThreadActive = true
+    -- Thread to monitor autopilot state
+    if autopilotThreadActive then return end
+    autopilotThreadActive = true
 
-        while autopilotenabled do
+    Citizen.CreateThread(function()
+        while autopilotEnabled do
             Wait(500)
 
-            -- If the waypoint is no longer active, cancel autopilot
+            -- Cancel if waypoint removed
             if not IsWaypointActive() then
-                setMinimapFeedback("Auto-Pilot deactivated: No active waypoint.")
-                autopilotenabled = false
-                TaskVehicleTempAction(playerPed, vehicle, 27, 3000)
-                ClearPedTasks(playerPed)
+                stopAutopilot(vehicle, playerPed, "Auto-Pilot deactivated: No active waypoint.")
                 break
             end
 
-            -- Ensure the vehicle is still valid
             if not DoesEntityExist(vehicle) then
-                setMinimapFeedback("Auto-Pilot deactivated: Vehicle no longer exists.")
-                autopilotenabled = false
-                ClearPedTasks(playerPed)
+                stopAutopilot(vehicle, playerPed, "Auto-Pilot deactivated: Vehicle lost.")
                 break
             end
 
-            -- Check the current distance from the waypoint
             local currentPos = GetEntityCoords(vehicle)
             local distance = Vdist(currentPos.x, currentPos.y, currentPos.z, waypoint.x, waypoint.y, waypoint.z)
 
-            -- Gradually slow down if close to the waypoint
             if distance < 20.0 then
-                TaskVehicleTempAction(playerPed, vehicle, 27, 1000) -- Gentle braking
+                TaskVehicleTempAction(playerPed, vehicle, 27, 1000)
             end
 
-            -- Stop the vehicle once we reach the destination
             if distance < 5.0 then
-                setMinimapFeedback("Destination reached.")
-                autopilotenabled = false
-                TaskVehicleTempAction(playerPed, vehicle, 27, 3000)
-                ClearPedTasks(playerPed)
+                stopAutopilot(vehicle, playerPed, "Destination reached.")
                 break
             end
         end
@@ -103,8 +94,5 @@ local function handleAutopilot()
     end)
 end
 
-
--- Command to activate/deactivate autopilot
-RegisterCommand("autopilot", function()
-    handleAutopilot()
-end, false)
+-- Command binding
+RegisterCommand("autopilot", startAutopilot, false)
